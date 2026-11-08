@@ -54,7 +54,23 @@ jobs:
             RANLIB="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
             HOSTCC=gcc \
             CFLAGS="-O3 -fPIC"
-          make PREFIX="$RUNNER_TEMP/openblas-android" install
+          # Repeat the same build options during installation. In particular,
+          # NO_SHARED=1 prevents make install from looking for a .so that was
+          # intentionally not produced by the static-only build.
+          make -j2 \
+            PREFIX="$RUNNER_TEMP/openblas-android" \
+            TARGET=CORTEXA57 \
+            ONLY_CBLAS=1 \
+            NOFORTRAN=1 \
+            NO_LAPACK=1 \
+            NO_SHARED=1 \
+            USE_OPENMP=0 \
+            CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+            AR="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" \
+            RANLIB="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
+            HOSTCC=gcc \
+            CFLAGS="-O3 -fPIC" \
+            install
           test -s "$RUNNER_TEMP/openblas-android/lib/libopenblas.a"
           test -s "$RUNNER_TEMP/openblas-android/include/cblas.h"
           test -s "$RUNNER_TEMP/openblas-android/include/openblas_config.h"
