@@ -1,0 +1,20 @@
+# Android ARM64 cross file for the CPU-only OpenBLAS build.
+# NDK: r27c; minimum Android API: 24.
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+cpp_link_args = ['-llog', '-lm', '-static-libstdc++']
+
+[binaries]
+c = 'aarch64-linux-android24-clang'
+cpp = 'aarch64-linux-android24-clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+ranlib = 'llvm-ranlib'
+as = 'aarch64-linux-android24-clang'
