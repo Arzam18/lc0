@@ -1,0 +1,99 @@
+name: Build LC0 Android ARM64 CPU-only (OpenBLAS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-arm64-cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ANDROID_NDK_VERSION: r27c
+      OPENBLAS_VERSION: v0.3.33
+      ISPC_VERSION: v1.31.0
+
+    steps:
+      - name: Checkout multi-engine source
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git curl unzip zip perl python3 python3-pip \
+            pkg-config libtbb12
+          python3 -m pip install --user --break-system-packages meson ninja
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Android NDK r27c
+        run: |
+          curl --fail --location --retry 3 \
+            "https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip" \
+            --output "$RUNNER_TEMP/android-ndk.zip"
+          unzip -q "$RUNNER_TEMP/android-ndk.zip" -d "$RUNNER_TEMP"
+          echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/android-ndk-${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Build static Android ARM64 OpenBLAS
+        run: |
+          git clone --depth 1 --branch "$OPENBLAS_VERSION" \
+            https://github.com/OpenMathLib/OpenBLAS.git "$RUNNER_TEMP/OpenBLAS"
+          cd "$RUNNER_TEMP/OpenBLAS"
+          make -j2 \
+            TARGET=CORTEXA57 \
+            ONLY_CBLAS=1 \
+            NOFORTRAN=1 \
+            NO_LAPACK=1 \
+            NO_SHARED=1 \
+            USE_OPENMP=0 \
+            CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+            AR="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" \
+            RANLIB="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
+            HOSTCC=gcc \
+            CFLAGS="-O3 -fPIC"
+          make PREFIX="$RUNNER_TEMP/openblas-android" install
+          test -s "$RUNNER_TEMP/openblas-android/lib/libopenblas.a"
+          test -s "$RUNNER_TEMP/openblas-android/include/cblas.h"
+          test -s "$RUNNER_TEMP/openblas-android/include/openblas_config.h"
+          echo "OPENBLAS_ROOT=$RUNNER_TEMP/openblas-android" >> "$GITHUB_ENV"
+
+      - name: Install ISPC for ARM64 NEON vector kernels
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/ispc/ispc/releases/download/${ISPC_VERSION}/ispc-${ISPC_VERSION}-linux.tar.gz" \
+            --output "$RUNNER_TEMP/ispc-linux.tar.gz"
+          echo "d74089c835e10fd7e2c4b9225ced38b87d1fb53d35c7ceabd48cdf035da11b11  $RUNNER_TEMP/ispc-linux.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/ispc"
+          tar -xzf "$RUNNER_TEMP/ispc-linux.tar.gz" -C "$RUNNER_TEMP/ispc" --strip-components=1
+          ISPC_BIN="$(find "$RUNNER_TEMP/ispc" -type f -name ispc -perm -u+x | head -n 1)"
+          test -n "$ISPC_BIN"
+          echo "$(dirname "$ISPC_BIN")" >> "$GITHUB_PATH"
+          chmod +x "$ISPC_BIN"
+          "$ISPC_BIN" --version
+
+      - name: Build LC0 with BLAS as the only neural backend
+        working-directory: lc0-master
+        env:
+          NINJA_JOBS: 2
+        run: |
+          bash scripts/build_android_arm64_cpu.sh
+
+      - name: Package engine-only artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/lc0-dist"
+          cp lc0-master/build-android-arm64-cpu/lc0 "$RUNNER_TEMP/lc0-dist/lc0"
+          chmod +x "$RUNNER_TEMP/lc0-dist/lc0"
+          cd "$RUNNER_TEMP/lc0-dist"
+          zip -9 "$GITHUB_WORKSPACE/LC0-Android-ARM64-CPU-OpenBLAS.zip" lc0
+          unzip -l "$GITHUB_WORKSPACE/LC0-Android-ARM64-CPU-OpenBLAS.zip"
+
+      - name: Upload standalone Android engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: LC0-Android-ARM64-CPU-OpenBLAS
+          path: LC0-Android-ARM64-CPU-OpenBLAS.zip
+          if-no-files-found: error
+          retention-days: 30
